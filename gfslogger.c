@@ -55,11 +55,11 @@
 // duh.
 #include "fsevents.h"
 
-static void die(int);
+static void die(int, const char *);
 static void process_event_data(void *, int);
 static void get_process_name(pid_t, char *, int);
 static void get_mode_string(int32_t, char *);
-static char *get_vnode_type(int32_t);
+static const char *get_vnode_type(int32_t);
 
 char large_buf[0x2000];
 
@@ -85,8 +85,9 @@ int main() {
   event_list[FSE_DOCID_CHANGED]       = FSE_REPORT;
 
   fd = open("/dev/fsevents", 0, 2);
-  if (fd < 0)
-    die(1);
+  if (fd < 0) {
+    die(1, "Can't open /dev/fsevents");
+  }
 
   retrieve_ioctl.event_list = event_list;
   retrieve_ioctl.num_events = sizeof(event_list);
@@ -94,7 +95,7 @@ int main() {
   retrieve_ioctl.fd = &newfd;
 
   if (ioctl(fd, FSEVENTS_CLONE, &retrieve_ioctl) < 0) {
-    die(1);
+    die(1, "ioctl failed");
   }
 
   close(fd);
@@ -143,7 +144,7 @@ static void process_event_data(void *in_buf, int size) {
     int32_t type;
     printf("# Event\n");
 
-    memcpy(&type, in_buf + pos, sizeof(type));
+    memcpy(&type, (char*)in_buf + pos, sizeof(type));
 
     printf("  type           = ");
     switch (type) {
@@ -194,7 +195,7 @@ static void process_event_data(void *in_buf, int size) {
     printf("\n");
     pos += 4;
 
-    memcpy(&pid, in_buf + pos, sizeof(pid));
+    memcpy(&pid, (char*)in_buf + pos, sizeof(pid));
 
     get_process_name(pid, buffer, sizeof(buffer));
 
@@ -205,7 +206,7 @@ static void process_event_data(void *in_buf, int size) {
            "    # type       len  data\n");
 
     while(1) {
-      memcpy(&argtype, in_buf + pos, sizeof(argtype));
+      memcpy(&argtype, (char*)in_buf + pos, sizeof(argtype));
       pos += 2;
 
       if (FSE_ARG_DONE == argtype) {
@@ -213,23 +214,23 @@ static void process_event_data(void *in_buf, int size) {
         break;
       }
 
-      memcpy(&arglen, in_buf + pos, sizeof(arglen));
+      memcpy(&arglen, (char*)in_buf + pos, sizeof(arglen));
       pos += 2;
 
       switch(argtype) {
       case FSE_ARG_VNODE:
-        printf("    VNODE%11d  path   = %s\n", arglen, (in_buf + pos));
+        printf("    VNODE%11d  path   = %s\n", arglen, ((char*)in_buf + pos));
         break;
       case FSE_ARG_STRING:
-        printf("    STRING%10d  string = %s\n", arglen, (in_buf + pos));
+        printf("    STRING%10d  string = %s\n", arglen, ((char*)in_buf + pos));
         break;
       case FSE_ARG_PATH: // not in kernel
-        printf("    PATH%12d  path   = %s\n", arglen, (in_buf + pos));
+        printf("    PATH%12d  path   = %s\n", arglen, ((char*)in_buf + pos));
         break;
       case FSE_ARG_INT32:
         if (arglen == sizeof(int32_t)) {
           int32_t val;
-          memcpy(&val, in_buf + pos, sizeof(val));
+          memcpy(&val, (char*)in_buf + pos, sizeof(val));
           printf("    INT32%11d  int32  = %d\n",
                  arglen, val);
         }
@@ -240,7 +241,7 @@ static void process_event_data(void *in_buf, int size) {
       case FSE_ARG_INT64: // not supported in kernel yet
         if (arglen == sizeof(int64_t)) {
           int64_t val;
-          memcpy(&val, in_buf + pos, sizeof(val));
+          memcpy(&val, (char*)in_buf + pos, sizeof(val));
           printf("    INT64%11d  int64  = %lld\n",
                  arglen, val);
         }
@@ -256,13 +257,13 @@ static void process_event_data(void *in_buf, int size) {
         {
           if (arglen == sizeof(uint32_t)) {
             uint32_t val;
-            memcpy(&val, in_buf + pos, sizeof(val));
+            memcpy(&val, (char*)in_buf + pos, sizeof(val));
             printf("    INODE%11d  ino    = %u\n",
                    arglen, val);
           }
           else if (arglen == sizeof(uint64_t)) {
             uint64_t val;
-            memcpy(&val, in_buf + pos, sizeof(val));
+            memcpy(&val, (char*)in_buf + pos, sizeof(val));
             printf("    INODE%11d  ino    = %llu\n",
                    arglen, val);
           }
@@ -274,7 +275,7 @@ static void process_event_data(void *in_buf, int size) {
         break;
       case FSE_ARG_UID:
         if (arglen == sizeof(uid)) {
-          memcpy(&uid, in_buf + pos, sizeof(uid));
+          memcpy(&uid, (char*)in_buf + pos, sizeof(uid));
           printf("    UID%13d  uid    = %d (%s)\n",
                  arglen, uid, (getpwuid(uid))->pw_name);
         }
@@ -284,7 +285,7 @@ static void process_event_data(void *in_buf, int size) {
         break;
       case FSE_ARG_DEV:
         if (arglen == sizeof(device)) {
-          memcpy(&device, in_buf + pos, sizeof(device));
+          memcpy(&device, (char*)in_buf + pos, sizeof(device));
           printf("    DEV%13d  dev    = 0x%x (major %d, minor %d)\n",
                  arglen, device,
                  (device >> 24) & 0x0FFFFFF, device & 0x0FFFFFF);
@@ -295,7 +296,7 @@ static void process_event_data(void *in_buf, int size) {
         break;
       case FSE_ARG_MODE:
         if (arglen == sizeof(mode)) {
-          memcpy(&mode, in_buf + pos, sizeof(mode));
+          memcpy(&mode, (char*)in_buf + pos, sizeof(mode));
           get_mode_string(mode, buffer);
           printf("    MODE%12d  mode   = %s (0x%06x, vnode type %s)\n",
                  arglen, buffer, mode, get_vnode_type(mode));
@@ -306,7 +307,7 @@ static void process_event_data(void *in_buf, int size) {
         break;
       case FSE_ARG_GID:
         if (arglen == sizeof(gid)) {
-          memcpy(&gid, in_buf + pos, sizeof(gid));
+          memcpy(&gid, (char*)in_buf + pos, sizeof(gid));
           printf("    GID%13d  gid    = %d (%s)\n",
                  arglen, gid, (getgrgid(gid))->gr_name);
         }
@@ -327,9 +328,9 @@ static void process_event_data(void *in_buf, int size) {
 }
 
 // dies with optional error message
-static void die(int p) {
+static void die(int p, const char* prefix) {
   if (p)
-    perror(NULL);
+    perror(prefix);
   exit(1);
 }
 
@@ -385,24 +386,20 @@ static void get_mode_string(int32_t mode, char *buf) {
 }
 
 // just returns a string representation of a node type
-static char *get_vnode_type(int32_t mode) {
-  char *str_to_ret;
-
+static const char *get_vnode_type(int32_t mode) {
   if (S_ISFIFO(mode)) {
-    str_to_ret = "VFIFO";
+    return "VFIFO";
   } else if (S_ISCHR(mode)) {
-    str_to_ret = "VCHR";
+    return "VCHR";
   } else if (S_ISDIR(mode)) {
-    str_to_ret = "VDIR";
+    return "VDIR";
   } else if (S_ISBLK(mode)) {
-    str_to_ret = "VBLK";
+    return "VBLK";
   } else if (S_ISLNK(mode)) {
-    str_to_ret = "VLNK";
+    return "VLNK";
   } else if (S_ISSOCK(mode)) {
-    str_to_ret = "VSOCK";
-  } else {
-    str_to_ret = "VREG";
+    return "VSOCK";
   }
 
-  return str_to_ret;
+  return "VREG";
 }
